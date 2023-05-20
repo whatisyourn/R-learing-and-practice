@@ -1,0 +1,74 @@
+library(xlsx)#加载读取execl的包
+library(ggplot2)#绘图工具
+library(astsa)#acf2的包
+library(forecast)
+library(knitr)#kable
+library(rugarch)#GARCH
+library(FinTS)#ArchTest
+library(TSA)#eacf
+library(tseries)#garch
+data <- read.xlsx("data.xls", sheetIndex = 1)  #加载数据进入
+colnames(data) <- c("date","close","price")#更改列名
+
+#1.使用ggplot进行折线图的绘制
+
+# 检查时间序列平稳性
+p <- ggplot(data = data,mapping = aes( x = date, y = close))#加载数据
+ p + geom_line()#选择绘图类型为折线图
+
+#2.进行差分平稳
+# 为了判断模型，我们需要对时间序列数据进行差分化，以判断其是否平稳
+data_r <- data$close %>% diff()
+plot(data_r,type='l')
+
+#3.平稳性检验
+# 我们首先可以画出该时间序列的自相关和偏自相关曲线
+acf2(data_r)
+fit  <- auto.arima(data_r)
+
+# 系数显著性检验
+t <- fit$coef / sqrt(diag(fit$var.coef))
+p_1 <- 2 * (1 - pnorm(abs(t)))
+kable(rbind(p = p_1), caption = "Result of Coef. Test")
+
+#稀疏模型
+mean_md_1 <- Arima(data_r,order = c(3, 0, 1),fixed = c(NA, NA,0, NA, 0))
+
+# 疏系数模型的系数显著性检验
+t <- mean_md_1$coef / sqrt(diag(mean_md_1$var.coef))
+p_2 <- 2 * (1 - pnorm(abs(t)))
+kable(rbind(p = p_2[p_2 != 1]), caption = "Result of Coef. Test")
+
+#4.诊断检查
+#获取模型估计的残差
+fit_residuals <- mean_md_1$residuals
+#绘制残差序列
+plot(fit_residuals,type='l')
+
+#绘制残差的ACF和PACF
+acf2(fit_residuals)
+# 进行Ljung-Box检验
+for (i in 1:50) {
+	a<-Box.test(fit_residuals, lag = i, type = "Ljung-Box")	
+	print(a$p.value)
+}
+
+#5.方差分析
+#获取残差平方
+sqr_residuals <- fit_residuals*fit_residuals
+#绘制残差平方序列
+plot(sqr_residuals,type='l')
+
+#绘制残差平方的ACF和PACF
+acf2(sqr_residuals)
+
+#使用LM检验是否存在Arch效用即检验残差方差齐性
+ArchTest(fit_residuals)
+
+# 开始进行GARCH建模
+myspec=ugarchspec(
+variance.model = list(model = "sGARCH", garchOrder = c(1, 1), submodel = NULL, 
+external.regressors = NULL, variance.targeting = FALSE),
+mean.model = list(armaOrder = c(2, 1), include.mean = FALSE, archm = FALSE, archpow = 1, arfima = FALSE, external.regressors = NULL, archex = FALSE),
+distribution.model = "norm")
+myfit=ugarchfit(myspec,data=fit_residuals,solver="solnp")

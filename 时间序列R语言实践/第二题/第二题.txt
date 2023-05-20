@@ -1,0 +1,46 @@
+library(ggplot2)#绘图工具
+library(xlsx)#加载读取execl的包
+library(astsa)#acf的包
+library(tseries)#adf.test
+library(vars)#irf cumirf
+library(lmtest)
+library("Ecdat")#consum
+library(forecast)#fevd
+data <- read.xlsx("quarterly.xls", sheetIndex = 1)  #加载数据进入
+#删除NA数据
+data <- na.omit(data)
+#获取工业生产指数对数和CPI
+log_ilp <- diff(ln(data$IndProd))
+log_cpi <- diff(log(data$CPI))
+
+#平稳检验
+adf.test(log_ilp)
+adf.test(log_cpi)
+
+#进行阶数的判断 使用VARselect()函数来选择最优的LAG（节滞期）数量
+data <- data.frame(log_ilp, log_cpi)
+VARselect(data, lag.max = 10, type = "const")
+
+#进行VAR建模并且保留残差
+mod <- VAR(data, p = 3, type = "const")
+resid <- residuals(mod)
+summary(mod)
+
+#进行Granger因果检验
+causality(mod, cause="log_ilp")
+causality(mod, cause="log_cpi")
+
+#进行Choleski分解
+Fevd<- fevd(mod)
+
+#使用Choleski分解分离脉冲响应 绘制两者冲击的影响
+ChosDe1<- irf(mod, impulse="log_ilp", response="log_cpi", boot=TRUE)
+ChosDe2<- irf(mod, impulse="log_cpi", response="log_ilp", boot=TRUE)
+plot(ChosDe1)
+plot(ChosDe2)
+
+# 使用Blanchard-Quah分解分离脉冲响应计算累计脉冲响应并且计算累计函数
+ChosDe3<- irf(mod, impulse="log_ilp", response="log_cpi", boot=TRUE,cumulative=TRUE)
+ChosDe4<- irf(mod, impulse="log_cpi", response="log_ilp", boot=TRUE,cumulative=TRUE)
+plot(ChosDe3)
+plot(ChosDe4)
